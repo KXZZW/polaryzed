@@ -1,0 +1,325 @@
+setclipboard("discord.gg/JsuC57GNHu")
+-- Services
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+
+-- Variables
+local camlockEnabled = false -- Camlock toggle state
+local target = nil -- Targeted player
+local espHighlight = nil -- ESP highlight for the locked target
+local predictionStrength = 0.1 -- Prediction strength
+local lastNotification = "" -- Track last notification
+local highlightEnabled = true -- Enable/disable ESP highlight
+local highlightColor = Color3.fromRGB(255, 0, 0) -- Default highlight color
+local lockPart = "Head" -- Default body part to lock onto
+local keybind = Enum.KeyCode.F -- Default keybind for toggling camlock
+
+-- Notification setup
+local NotificationHolder = loadstring(game:HttpGet("https://raw.githubusercontent.com/BocusLuke/UI/main/STX/Module.Lua"))()
+local Notification = loadstring(game:HttpGet("https://raw.githubusercontent.com/BocusLuke/UI/main/STX/Client.Lua"))()
+
+-- UI Library Setup
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/insanedude59/SplixUiLib/main/Main"))()
+local Window = library:new({textsize = 13, font = Enum.Font.SourceSansBold, name = "Polarized.LOL|.gg/JsuC57GNHu", color = Color3.fromRGB(85, 170, 255)})
+
+-- Tabs and Sections
+local Tab1 = Window:page({name = "Main"})
+local Tab2 = Window:page({name = "ESP Settings"})
+local Tab3 = Window:page({name = "Player Features"})
+
+-- ESP Section
+local Section1 = Tab1:section({name = "Camlock Settings", side = "left", size = 300})
+local Section2 = Tab2:section({name = "ESP Settings", side = "left", size = 300})
+local Section3 = Tab3:section({name = "Player Features", side = "left", size = 300})
+
+-- Utility Functions
+local function notify(title, description)
+    if lastNotification ~= description then
+        lastNotification = description
+        Notification:Notify(
+            {Title = title, Description = description},
+            {OutlineColor = Color3.fromRGB(80, 80, 80), Time = 2, Type = "default"}
+        )
+    end
+end
+
+-- ESP Functions
+local function highlightTarget(player)
+    if espHighlight then espHighlight:Destroy() end
+
+    if highlightEnabled and player and player.Character and player.Character:FindFirstChild(lockPart) then
+        espHighlight = Instance.new("Highlight")
+        espHighlight.Adornee = player.Character
+        espHighlight.FillColor = highlightColor
+        espHighlight.FillTransparency = 0.5
+        espHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        espHighlight.Parent = player.Character
+    end
+end
+
+local function removeHighlight()
+    if espHighlight then
+        espHighlight:Destroy()
+        espHighlight = nil
+    end
+end
+
+-- Targeting Function
+local function getClosestPlayer()
+    local localPlayer = Players.LocalPlayer
+    local mouse = localPlayer:GetMouse()
+    local closest, closestDistance = nil, math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= localPlayer and player.Character and player.Character:FindFirstChild(lockPart) then
+            local part = player.Character[lockPart]
+            local partPosition = part.Position
+            local screenPosition, onScreen = workspace.CurrentCamera:WorldToViewportPoint(partPosition)
+
+            if onScreen then
+                local distance = (Vector2.new(screenPosition.X, screenPosition.Y) - Vector2.new(mouse.X, mouse.Y)).Magnitude
+                if distance < closestDistance then
+                    closest = player
+                    closestDistance = distance
+                end
+            end
+        end
+    end
+
+    return closest
+end
+
+-- Prediction Function
+local function predictTargetPosition(player)
+    if player and player.Character and player.Character:FindFirstChild(lockPart) then
+        local part = player.Character[lockPart]
+        local velocity = part.Velocity or Vector3.zero
+        local predictedPosition = part.Position + (velocity * predictionStrength)
+        return predictedPosition
+    end
+    return nil
+end
+
+-- Listen for keybind press to toggle Camlock
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == keybind then
+        camlockEnabled = not camlockEnabled
+        if camlockEnabled then
+            notify("Camlock", "Camlock Enabled")
+        else
+            if target then
+                notify("Camlock", "Unlocked: " .. target.Name)
+            end
+            removeHighlight()
+            target = nil
+        end
+    end
+end)
+
+-- Main Loop for Camlock
+RunService.RenderStepped:Connect(function()
+    if camlockEnabled then
+        if not target or not target.Character or not target.Character:FindFirstChild(lockPart) then
+            target = getClosestPlayer()
+            if target then
+                notify("Camlock", "Locked: " .. target.Name)
+                highlightTarget(target)
+            else
+                notify("Camlock", "No valid target found")
+                removeHighlight()
+            end
+        end
+
+        if target and target.Character and target.Character:FindFirstChild(lockPart) then
+            local predictedPosition = predictTargetPosition(target)
+            if predictedPosition then
+                workspace.CurrentCamera.CFrame = CFrame.new(
+                    workspace.CurrentCamera.CFrame.Position,
+                    predictedPosition
+                )
+            end
+        end
+    end
+end)
+
+-- Camlock Section
+Section1:toggle({
+    name = "Enable Camlock",
+    def = false,
+    callback = function(value)
+        camlockEnabled = value
+
+        if camlockEnabled then
+            notify("Camlock", "Camlock Enabled")
+        else
+            if target then
+                notify("Camlock", "Unlocked: " .. target.Name)
+            end
+            removeHighlight()
+            target = nil
+        end
+    end
+})
+
+Section1:textbox({
+    name = "Prediction Strength (0.<number>)",
+    def = "0.1",
+    placeholder = "Enter a value (e.g., 0.1)",
+    callback = function(value)
+        local num = tonumber(value)
+        if num and num > 0 and num < 1 then
+            predictionStrength = num
+            notify("Prediction", "Strength set to " .. tostring(num))
+        else
+            notify("Error", "Invalid prediction strength. Enter a number between 0.1 and 0.9")
+        end
+    end
+})
+
+Section1:dropdown({
+    name = "Lock Part",
+    def = "Head",
+    options = {"Head", "UpperTorso", "HumanoidRootPart"},
+    callback = function(value)
+        lockPart = value
+        notify("Camlock", "Locking onto " .. value)
+    end
+})
+
+Section1:textbox({
+    name = "Keybind for Camlock (Default: F)",
+    def = "F",
+    placeholder = "Enter a keybind (e.g., F, G, etc.)",
+    callback = function(value)
+        local newKeybind = Enum.KeyCode[value:upper()]
+        if newKeybind then
+            keybind = newKeybind
+            notify("Camlock", "Keybind set to " .. value)
+        else
+            notify("Error", "Invalid keybind. Please enter a valid key (e.g., F, G).")
+        end
+    end
+})
+
+-- ESP Settings Section
+Section2:toggle({
+    name = "Enable ESP Highlight",
+    def = true,
+    callback = function(value)
+        highlightEnabled = value
+        notify("ESP", highlightEnabled and "Highlight Enabled" or "Highlight Disabled")
+    end
+})
+
+Section2:colorpicker({
+    name = "ESP Highlight Color",
+    def = Color3.fromRGB(255, 0, 0),
+    callback = function(value)
+        highlightColor = value
+        notify("ESP", "Highlight color updated")
+    end
+})
+
+Section2:toggle({
+    name = "Display Player Name(soon)",
+    def = true,
+    callback = function(value)
+        -- Implement player name display here
+    end
+})
+
+Section2:toggle({
+    name = "Display Health Bar(soon)",
+    def = true,
+    callback = function(value)
+        -- Implement health bar display here
+    end
+})
+
+Section2:toggle({
+    name = "Display Distance(soon)",
+    def = true,
+    callback = function(value)
+        -- Implement distance display here
+    end
+})
+
+Section2:button({
+    name = "Reset ESP",
+    callback = function()
+        removeHighlight()
+        notify("ESP", "Highlight reset")
+    end
+})
+
+-- Player Features Section
+Section3:slider({
+    name = "Walk Speed",
+    min = 16,
+    max = 100,
+    def = 16,
+    callback = function(value)
+        playerSpeed = value
+        game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = playerSpeed
+        notify("Player Features", "Walk Speed set to " .. playerSpeed)
+    end
+})
+
+Section3:slider({
+    name = "Jump Power",
+    min = 50,
+    max = 200,
+    def = 50,
+    callback = function(value)
+        playerJump = value
+        game.Players.LocalPlayer.Character.Humanoid.JumpPower = playerJump
+        notify("Player Features", "Jump Power set to " .. playerJump)
+    end
+})
+
+Section3:toggle({
+    name = "Enable Noclip",
+    def = false,
+    callback = function(value)
+        noclipEnabled = value
+        local player = game.Players.LocalPlayer
+        local character = player.Character
+        local humanoid = character and character:FindFirstChild("Humanoid")
+
+        if noclipEnabled then
+            -- Enable noclip
+            humanoid.PlatformStand = true
+            game:GetService("RunService").Heartbeat:Connect(function()
+                if character then
+                    character:MoveTo(character.Position + character.HumanoidRootPart.Velocity)
+                end
+            end)
+            notify("Player Features", "Noclip Enabled")
+        else
+            -- Disable noclip
+            if humanoid then
+                humanoid.PlatformStand = false
+            end
+            notify("Player Features", "Noclip Disabled")
+        end
+    end
+})
+
+Section3:button({
+    name = "Reset Player Features",
+    callback = function()
+        playerSpeed = 16
+        playerJump = 50
+        noclipEnabled = false
+        game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = playerSpeed
+        game.Players.LocalPlayer.Character.Humanoid.JumpPower = playerJump
+        game.Players.LocalPlayer.Character.Humanoid.PlatformStand = false
+        notify("Player Features", "Features reset")
+    end
+})
+
+
+-- Show UI
+Window:open()
